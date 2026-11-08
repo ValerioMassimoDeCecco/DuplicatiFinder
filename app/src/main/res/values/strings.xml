@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">DupHash SE</string>
+    <string name="permission_banner_title">ACCESSO DIRETTO FILE SYSTEM (MANAGE_EXTERNAL_STORAGE)</string>
+    <string name="permission_banner_desc">Per scansionare l\'intero storage con java.io.File senza il collo di bottiglia IPC di SAF, concedi il permesso di gestione completa file.</string>
+    <string name="grant_permission">AUTORIZZA ACCESSO</string>
+    <string name="start_scan">SCANSIONA</string>
+    <string name="stop_scan">INTERROMPI</string>
+    <string name="seed_test_dataset">GENERA SANDBOX FILE REALI</string>
+    <string name="clear_cache">SVUOTA CACHE HASH</string>
+    <string name="settings_exclusions">ESCLUSIONI PERCORSI</string>
+    <string name="smart_keep_oldest">Mantieni più vecchio</string>
+    <string name="smart_keep_newest">Mantieni più recente</string>
+    <string name="smart_select_by_folder">Seleziona per cartella…</string>
+    <string name="smart_deselect_all">Deseleziona tutto</string>
+    <string name="delete_selected">ELIMINA SELEZIONATI</string>
+    <string name="safety_all_selected_warning">ATTENZIONE: Tutte le copie selezionate (nessun originale preservato)</string>
+</resources>

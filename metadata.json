@@ -1,0 +1,6 @@
+{
+  "name": "DupHash SE",
+  "description": "High-performance 3-stage storage duplicate file scanner and cleaner utility with xxHash64, XXH3-128, and Room hash caching.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
