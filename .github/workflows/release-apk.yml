@@ -1,0 +1,184 @@
+name: Build & Publish Release APK v1.00
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag della release da pubblicare"
+        required: false
+        default: "v1.00"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Signed APK v1.00 & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Set up Android SDK (API 36.1 & Build Tools 36.0.0)
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK Platform 36.1
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36.1" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Prepare .env and Keystores (Debug & Release Signing)
+        env:
+          SECRET_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          SECRET_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -e
+
+          # 1. Ensure .env exists for com.google.android.libraries.mapsplatform.secrets-gradle-plugin
+          if [ ! -f ".env" ]; then
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+
+          # 2. Restore or generate debug.keystore required by signingConfigs.debugConfig
+          if [ ! -f "debug.keystore" ]; then
+            if [ -f "debug.keystore.base64" ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            else
+              keytool -genkeypair -v \
+                -keystore debug.keystore \
+                -storepass android \
+                -alias androiddebugkey \
+                -keypass android \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+          # 3. Restore or generate Release keystore required by signingConfigs.release
+          KEYSTORE_FILE="${GITHUB_WORKSPACE}/my-upload-key.jks"
+          if [ -n "$SECRET_KEYSTORE_BASE64" ]; then
+            echo "$SECRET_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
+            STORE_PASS="${SECRET_STORE_PASSWORD:-androidrelease}"
+            KEY_PASS="${SECRET_KEY_PASSWORD:-androidrelease}"
+          else
+            STORE_PASS="androidrelease"
+            KEY_PASS="androidrelease"
+            if [ ! -f "$KEYSTORE_FILE" ]; then
+              keytool -genkeypair -v \
+                -keystore "$KEYSTORE_FILE" \
+                -storepass "$STORE_PASS" \
+                -alias upload \
+                -keypass "$KEY_PASS" \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=DupHash SE Release,OU=Engineering,O=DupHashSE,L=Rome,S=RM,C=IT"
+            fi
+          fi
+
+          echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
+          echo "STORE_PASSWORD=$STORE_PASS" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
+
+      - name: Setup Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Build Signed Release & Debug APKs (v1.00)
+        run: |
+          gradle :app:assembleRelease :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Prepare Release Artifacts & Checksums
+        id: artifacts
+        run: |
+          mkdir -p release-assets
+
+          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          DEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+
+          if [ -z "$RELEASE_APK" ]; then
+            echo "Errore: APK Release non trovato!"
+            exit 1
+          fi
+
+          cp "$RELEASE_APK" "release-assets/DupHash-SE-v1.00.apk"
+
+          if [ -n "$DEBUG_APK" ]; then
+            cp "$DEBUG_APK" "release-assets/DupHash-SE-v1.00-debug.apk"
+          fi
+
+          (
+            cd release-assets
+            sha256sum *.apk > SHA256SUMS.txt
+          )
+
+          ls -lh release-assets/
+
+      - name: Upload APK Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DupHash-SE-v1.00-APK
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Determine Release Tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          elif [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            TAG_NAME="${{ github.event.inputs.release_tag }}"
+          else
+            TAG_NAME="v1.00"
+          fi
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Publish APK v1.00 to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          name: "DupHash SE v1.00"
+          body: |
+            ## DupHash SE — Release v1.00
+            High-performance 3-stage duplicate file scanner & cleaner per Android (`Kotlin + Jetpack Compose`).
+
+            ### Caratteristiche principali
+            - **Pipeline a 3 Stadi concorrente (`limitedParallelism(6)`):**
+              1. *Stage 1:* Size Grouping istantaneo su file system (`java.io.File` / `FileTreeWalk`).
+              2. *Stage 2:* Partial Hash 8 KB (primi 4096 B + ultimi 4096 B) con **xxHash64**.
+              3. *Stage 3:* Full Hash streaming (buffer 64 KB) con **XXH3-128**.
+            - **Cache Persistente Room (`FileHashCacheEntity`):** Evita il ricalcolo degli hash per i file invariati.
+            - **Smart Auto-Selection & Safety Guardrail:** Preserva sempre almeno 1 copia originale per gruppo.
+            - **Pacchetti allegati:**
+              - `DupHash-SE-v1.00.apk` (Signed Release APK pronto per l'installazione)
+              - `DupHash-SE-v1.00-debug.apk` (Debug APK)
+              - `SHA256SUMS.txt` (Checksum SHA-256)
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/DupHash-SE-v1.00.apk
+            release-assets/DupHash-SE-v1.00-debug.apk
+            release-assets/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
