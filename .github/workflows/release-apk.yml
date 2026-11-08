@@ -32,13 +32,19 @@ jobs:
           distribution: "temurin"
           java-version: "21"
 
-      - name: Set up Android SDK (API 36.1 & Build Tools 36.0.0)
+      - name: Set up Android SDK (without legacy 'tools' package)
         uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools"
 
-      - name: Install Android SDK Platform 36.1
+      - name: Accept SDK Licenses & Install Android SDK Platforms (36 / 36.1)
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36.1" "platforms;android-36" "build-tools;36.0.0"
+          set -e
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          # Install platforms;android-36.1 (stable or preview channel); AGP also auto-downloads once licenses are accepted
+          "$SDKMANAGER" --install "platforms;android-36.1" || "$SDKMANAGER" --channel=3 --install "platforms;android-36.1" || true
 
       - name: Prepare .env and Keystores (Debug & Release Signing)
         env:
